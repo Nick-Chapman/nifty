@@ -33,10 +33,10 @@ This is the first commit. I have big plans, but it's very early days yet. Overvi
     3. the current monad which supports the `reverse_bind` operator!
 
 The `reverse_bind` operator is very like `bind` (`>>=`) except that earlier-code gets to have a data-dependency on later-code. This allows, among other things:
-1. assembling the 64 byte header which contains pointers to later sections in the z-image-file: the dictionary, globals, object_table, init_pc etc.
-2. assembling the static text-strings section after the code-section which references the strings.
-3. assembling all the object property tables after the objects with refernce them
-4. assembling branch forward instructions
+1. assembling the static text-strings section after the code-section which references the strings.
+2. assembling all the object property tables after the objects with reference them.
+3. assembling branch forward instructions
+4. assembling the 64 byte header which contains pointers to later sections in the z-image-file: the dictionary, globals, object_table, init_pc etc.
 
 `play_assemble.ml`
 - Work in progress to figure out how to emit z-code for an assembly language with branches/jumps both forward and backwards. This will make critical use of the Emit.reverse_bind operator.
