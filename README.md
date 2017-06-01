@@ -26,22 +26,25 @@ This is the first commit. I have big plans, but it's very early days yet. Overvi
 
 `lib/emit.mli`  
 `lib/emit.ml`
-- The lovely `Emit' monad used by assemble.ml and text.ml
+- The lovely `Emit.t` monad used by `assemble.ml` and `text.ml`
 - Already in its 3rd incarnation.
-    1. applicative style... a maze of twisty passages that went nowhere.
-    2. monad with allocate_space/backpatch... worked in a fashion; bit hacky; and not as general as...
-    3. the current monad which supports a 'reverse_bind' operator!
+    1. tried applicative style... a maze of twisty passages that went nowhere.
+    2. monad with `allocate_space`/`backpatch`... worked in a fashion; bit hacky; and not as general as...
+    3. the current monad which supports the `reverse_bind` operator!
 
-The `reverse_bind` operator is very like `bind` (`>>=`) except that earlier-code gets to have a data-dependency on later-code. This allows (among other things) to assemble z-code where the 64 byte header contains pointers to later sections in the z-image-file (i.e. the dictionary, globals, object_table, init_pc etc.). Also it allows assembling the section with static text-strings after the code-section which references those strings.
+The `reverse_bind` operator is very like `bind` (`>>=`) except that earlier-code gets to have a data-dependency on later-code. This allows, among other things:
+1. assembling the 64 byte header which contains pointers to later sections in the z-image-file: the dictionary, globals, object_table, init_pc etc.
+2. assembling the static text-strings section after the code-section which references the strings.
+3. assembling all the object property tables after the objects with refernce them
+4. assembling branch forward instructions
 
 `play_assemble.ml`
 - Work in progress to figure out how to emit z-code for an assembly language with branches/jumps both forward and backwards. This will make critical use of the Emit.reverse_bind operator.
 
 
-
-To build, first checkout project "niz" as a subdir: 
+To build, first checkout my `niz` project as a subdir: 
 ```
-git clone https://github.com/Nick-Chapman/niz.git`
+git clone https://github.com/Nick-Chapman/niz.git
 ```
 
 And then run `make`
