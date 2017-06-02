@@ -213,8 +213,8 @@ end = struct
 end
   
 let compile (uam : unit Action.t In_image.t) = 
-  let dict = Assemble.Dict.create [] in
-  let objects = Assemble.Objects.create () in
+  let dict = Assemble.Dict.create [] in (* no dictionary! *)
+  let objects = Assemble.Objects.create [] in (* no objects! *)
   
   let instructions,text = 
     In_image.exec (

@@ -1,6 +1,9 @@
 open Core
 open Z_machine.Numbers
 
+type label = Label of int
+[@@deriving sexp, compare]
+
 type arg = 
 | Var of Var.t
 | Byte of Byte.t
@@ -21,4 +24,6 @@ type t =
 | Add of (arg * arg * Var.t)
 | Sub of (arg * arg * Var.t)
 | Mul of (arg * arg * Var.t)
- [@@deriving sexp_of]
+| Define_label of label
+| Jump_eq of (arg * arg * label)
+[@@deriving sexp_of]

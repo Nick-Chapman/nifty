@@ -1,4 +1,4 @@
-open! Core.Std
+open! Core
 open Z_machine.Numbers
 
 type 'a t
@@ -27,3 +27,4 @@ val byte : Byte.t -> unit t
 val bytes : Byte.t list -> unit t
 val word : Word.t -> unit t
 val seq : unit t list -> unit t
+val concat : 'a t list -> 'a list t

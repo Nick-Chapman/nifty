@@ -153,3 +153,11 @@ let assert_size ?(tag="") (expected:int) t =
   else 
     failwithf "assert_size(%s) failed: actual=%d, expected=%d"
       tag actual expected ()
+
+let concat = 
+  let rec loop acc = function
+    | [] -> return (List.rev acc)
+    | t::ts -> t >>= fun x -> loop (x::acc) ts
+  in
+  fun ts -> loop [] ts
+      

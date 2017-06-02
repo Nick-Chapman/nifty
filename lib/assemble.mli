@@ -6,8 +6,12 @@ module Dict : sig
 end
 
 module Objects : sig 
+  module Ob : sig
+    type t
+    val create : short_name:string -> t
+  end
   type t
-  val create : unit -> t (*todo*)
+  val create : Ob.t list -> t
 end
 
 module Code : sig

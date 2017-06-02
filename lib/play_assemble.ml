@@ -1,7 +1,5 @@
 open! Core
 
-(* WORK IN PROGRESS *)
-
 let (>>=) = Emit.(>>=)
 let return = Emit.return 
 

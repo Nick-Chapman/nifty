@@ -5,6 +5,13 @@ module Value = Z_machine.Value
 let (>>=) = Emit.(>>=)
 let return = Emit.return
 
+let emit_fill_pattern byte n = 
+  Emit.bytes (List.init n ~f:(fun _ -> byte))
+
+let b77 = Byte.of_int_exn 0x77
+let _ = b77
+
+
 module Dict : sig
 
   type t [@@deriving sexp_of]
@@ -16,9 +23,6 @@ end = struct
     
   type t = string list [@@deriving sexp_of]
   let create xs = xs
- 
-  let emit_fill_pattern byte n = 
-    Emit.bytes (List.init n ~f:(fun _ -> byte))
 
   let text_chars = 6
   let text_bytes = 4
@@ -54,17 +58,86 @@ end
 
 module Objects : sig
 
+  module Ob : sig
+    type t
+    val create : short_name:string -> t
+  end
+
   type t [@@deriving sexp_of]
-  val create : unit -> t
+  val create : Ob.t list -> t
   val encode : t -> unit Emit.t
 
 end = struct
 
-  let b99 = Byte.of_int_exn 0x99 (* TEMP, for dev *)
-    
-  type t = unit [@@deriving sexp_of]
-  let create () = ()
-  let encode () = Emit.bytes [b99]
+  module Ob = struct
+
+    type t = {
+      short_name : string
+    } [@@deriving sexp_of]
+
+    let create ~short_name = { short_name }
+      
+    let emit_size_prefixed_string string =
+      Emit.reverse_bind
+	~first_f:(fun ~backwards_flowing_info:size ->
+	  assert(size%2 = 0);
+	  let half_size = size/2 in
+	  Emit.byte (Byte.of_int_exn half_size)
+	)
+	~second:(
+	  Emit.size (Text.String.encode string) >>= fun ((),size) ->
+	  return size
+	)
+
+    let emit_properties = (* none for now *)
+      Emit.byte Byte.zero
+
+    let emit_prop_table t = 
+      Emit.seq [
+	emit_size_prefixed_string t.short_name;
+	emit_properties;
+      ]
+
+    let emit_attributes = emit_fill_pattern Byte.zero 4 (* z1..z3*)
+
+    let emit_parent = Emit.byte Byte.zero
+    let emit_sibling = Emit.byte Byte.zero
+    let emit_child = Emit.byte Byte.zero
+
+    let emits (ts : t list) : unit Emit.t = 
+      Emit.reverse_bind
+	~first_f:(fun ~backwards_flowing_info:pairs ->
+	    Emit.seq (
+	      List.map pairs ~f:(fun (_t,prop_table) ->
+		Emit.seq [
+		  emit_attributes;
+		  emit_parent;
+		  emit_sibling;
+		  emit_child;
+		  Emit.loc prop_table;
+		])))
+	~second:(
+	  Emit.concat (
+	    List.map ts ~f:(fun t ->
+	      Emit.here >>= fun loc ->
+	      emit_prop_table t >>= fun () ->
+	      return (t,loc))))
+
+  end
+
+  type t = Ob.t list [@@deriving sexp_of]
+  let create xs = xs
+
+  let encode_prop_defaults = (* 31 words for z1..z3 *)
+    Emit.seq (
+      List.map (List.range 1 32) ~f:(fun i ->
+	Emit.word (Word.of_int_exn i)))
+      
+  let encode xs = 
+    Emit.seq [
+      encode_prop_defaults;
+      Ob.emits xs;
+    ]
 
 end
 
@@ -100,8 +173,10 @@ module I = struct
     | Instr.Add (a,b,_)
     | Instr.Sub (a,b,_)
     | Instr.Mul (a,b,_)
+    | Instr.Jump_eq (a,b,_)
       -> [arg_desc_of_arg a; arg_desc_of_arg b]
-
+    | Instr.Define_label _ -> failwith "argsDescI: Label"
+      
   let opkindI = 
     function
 (*    | Instr.Store (a,b) -> Op2 (arg_desc_of_arg a, arg_desc_of_arg b)*)
@@ -115,6 +190,8 @@ module I = struct
     | Instr.Add _ -> Op2varForm
     | Instr.Sub _ -> Op2varForm
     | Instr.Mul _ -> Op2varForm
+    | Instr.Define_label _ -> failwith "opkindI: Label"
+    | Instr.Jump_eq _ -> Op2varForm
 
   let opcodeI = 
     function
@@ -128,6 +205,8 @@ module I = struct
     | Instr.Add _ -> 20
     | Instr.Sub _ -> 21
     | Instr.Mul _ -> 22
+    | Instr.Define_label _ -> failwith "opcodeI: Label"
+    | Instr.Jump_eq _ -> 1
       
   let bits_of_arg_desc = function
     | WordConst -> 0
@@ -263,6 +342,14 @@ module I = struct
 	emit_var var
       ]
 
+    | Instr.Define_label _ -> failwith "emit: Label"
+    | Instr.Jump_eq (a,b,_) ->
+      Emit.seq [
+	emit_arg env zversion a;
+	emit_arg env zversion b;
+      ]
+
+
   let emit env zversion i = 
     Emit.seq [
       emit_opcode i;
@@ -297,11 +384,37 @@ module Header = struct
 	Emit.loc end_loc; (* base_static *)
 	emit_zeros 2;
 	emit_of_string "NIFTY!"; (*6*)
-	Emit.word (Word.of_int_exn 77);  (*base_abbrev*)
+	Emit.word (Word.of_int_exn 0);  (*base_abbrev*)
 	emit_zeros 38;
       ])
 
 end
+
+module Lab : sig (* assembler branch/jump targets *)
+  type t = Instr.label
+  include Comparable with type t := t
+end = struct
+  module T = struct
+    type t = Instr.label [@@deriving sexp, compare]
+  end
+  include T
+  include Comparable.Make(T)
+end
+
+module Forward_offsets : sig
+  type t
+  val empty : t
+  val increase : t -> int -> t
+  val extend_label_at_zero_offset : t -> Instr.label -> t
+  val lookup : t -> Instr.label -> int
+end = struct
+  type t = int Lab.Map.t
+  let empty = Lab.Map.empty
+  let increase m n = Lab.Map.map m ~f:(fun x -> (x+n))
+  let extend_label_at_zero_offset m lab = Lab.Map.add m ~key:lab ~data:0
+  let lookup m lab = Lab.Map.find_exn m lab
+end
+
 
 module Code = struct
     
@@ -310,20 +423,67 @@ module Code = struct
 
   let create xs = Code xs
 
-  let rec emit_is env zversion acc = function
-    | [] -> Emit.seq (List.rev acc)
-    | i::is -> 
-      let acc = I.emit env zversion i :: acc in
-      emit_is env zversion acc is
+  let emit_label ~(forward_offset:int) : unit Emit.t =
+    assert (forward_offset>=0);
+    let forward_offset = forward_offset + 2 in (* 0,1 have special meaning *)
+    if (forward_offset > 63) then failwith "todo: emit_label: long form" else
+      let positive_sense = 0x1 lsl 7 in
+      let small = 0x1 lsl 6 in
+      Emit.byte (
+	Byte.of_int_exn (positive_sense lor small lor forward_offset)
+      )
+
+      
+
+  let emit_branch env zversion i ~(forward_offset:int) : unit Emit.t =
+    Emit.seq [
+      I.emit_opcode i;
+      I.emit_args env zversion i;
+      emit_label ~forward_offset
+    ]
+
+
+  let emit_i env zversion 
+      : Forward_offsets.t -> Instr.t -> Forward_offsets.t Emit.t =
+    fun fo (x:Instr.t) ->
+      let _ = Forward_offsets.lookup in
+      match x with
+      | Instr.Define_label lab -> 
+	return (Forward_offsets.extend_label_at_zero_offset fo lab)
+
+      | Instr.Jump_eq (_,_,lab) -> 
+	let forward_offset = Forward_offsets.lookup fo lab in
+	emit_branch env zversion x ~forward_offset >>= fun () ->
+	return fo
+
+      | _ ->
+	I.emit env zversion x >>= fun () ->
+	return fo
+
+
+  let emit_is env zversion : Instr.t list -> unit Emit.t =
+    let rec loop : Instr.t list -> Forward_offsets.t Emit.t = function
+      | [] -> return Forward_offsets.empty
+      | x::xs -> 
+	Emit.reverse_bind
+	  ~first_f:(fun ~backwards_flowing_info:fo ->
+	    Emit.size (emit_i env zversion fo x) >>= fun (fo,size) ->
+	    return (Forward_offsets.increase fo size)
+	  )
+	  ~second:(
+	    loop xs >>= fun fo ->
+	    return fo
+	  )
+    in
+    fun xs -> 
+      loop xs >>= fun _fo ->
+      return ()
 
   let compile zversion env (Code instructions) = 
     (* #args in dummy routine wrapping init code *)
     Emit.byte Byte.zero >>= fun () ->
     Emit.here >>= fun init_pc -> 
-    Emit.seq [
-      emit_is env zversion [] instructions;
-      Emit.byte Byte.zero; (* so have something after final quit instruction *)
-    ] >>= fun () ->
+    emit_is env zversion instructions >>= fun () ->
     return init_pc
 
 end
@@ -344,13 +504,8 @@ module Story = struct
     code;
   }
 
-  let b77 = Byte.of_int_exn 0x77
-
-  let emit_fill_pattern byte n = 
-    Emit.bytes (List.init n ~f:(fun _ -> byte))
-
   let compile_globals_space n =
-    emit_fill_pattern b77 (2*n)
+    emit_fill_pattern (*Byte.zero*) b77 (2*n)
 
   let n_globals = 40 (* really 240, indexed 0..239 *)
 

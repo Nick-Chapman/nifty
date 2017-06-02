@@ -4,8 +4,13 @@ open Assemble
 open Instr
 
 let dict = Dict.create ["north";"south";"inventory";"east"]
-(*let dict = Dict.create []d *)
-let objects = Objects.create () (* no objects yet *)
+
+let objects = Objects.create [
+  Objects.Ob.create ~short_name:"my first object";
+  Objects.Ob.create ~short_name:"another object";
+]
+
+
 let global n = Var (Global n)
 let target n = Target (Global n)
 
@@ -19,6 +24,8 @@ let sp = Var Sp
 let target_sp = Target Sp
 
 open! Arg
+
+let l1 = Label 1
 
 let code = 
   let open Instr in
@@ -46,9 +53,16 @@ let code =
     Newline;
     Print "Thanks";
     Newline;*)
+
+    Jump_eq (Int 100, Int 100, l1);
+    Print "Maybe see this"; Newline;
+    Define_label l1;
+    Print "But definitely see this"; Newline;
+
+    Print "This story has two objects!";
+    Newline;
     Quit;
   ]
-    
 		   
 let story = Story.create dict objects text code
 let zversion = Zversion.Z3
