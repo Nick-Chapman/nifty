@@ -12,15 +12,19 @@ module In_image : sig
 
   val allocate_string : string -> Text.t t
 
+  val allocate_label : Instr.label t
+
 end = struct
     
   type state = {
     global : int;
     text : Text.store;
+    label : int;
   }
   let state0 = { 
     global = 3 ; (* leave 0,1,2 for something special *)
     text = Text.empty;
+    label = 1000;
   }  
 
   type 'a t = state -> 'a * state
@@ -37,6 +41,10 @@ end = struct
   let allocate_string string = fun s ->
     let id,text = Text.add s.text string in
     id, { s with text }
+
+  let allocate_label = fun s ->
+    let n = s.label + 1 in
+    Instr.Label n, { s with label = n }
       
 end
 
@@ -95,6 +103,10 @@ module Exp : sig
   val add : int t -> int t -> int t
   val sub : int t -> int t -> int t
   val mul : int t -> int t -> int t
+  val div : int t -> int t -> int t
+  val mod_ : int t -> int t -> int t
+
+  val eqI : int t -> int t -> bool t
 
   val compile_string : string t -> string option
 
@@ -103,14 +115,21 @@ module Exp : sig
     'a t -> 
     (Instr.t list * Instr.arg) In_image.t
 
+  val compile_branch : 
+    bool t -> 
+    Instr.label ->
+    Instr.t list In_image.t
+
 end = struct
 
   module Iop2 = struct
-    type t = Add | Sub | Mul
+    type t = Add | Sub | Mul | Div | Mod 
     let compile t args = match t with
       | Add -> Instr.Add args
       | Sub -> Instr.Sub args
       | Mul -> Instr.Mul args
+      | Div -> Instr.Div args
+      | Mod -> Instr.Mod args
   end
 
   type _ t =
@@ -118,6 +137,7 @@ end = struct
   | Int : int -> int t
   | Read : 'a Lv.t -> 'a t
   | Bin : Iop2.t * int t * int t -> int t
+  | EqI : int t * int t -> bool t
 
   let string x = String x
   let int x = Int x
@@ -125,6 +145,10 @@ end = struct
   let add x y = Bin (Iop2.Add,x,y)
   let sub x y = Bin (Iop2.Sub,x,y)
   let mul x y = Bin (Iop2.Mul,x,y)
+  let div x y = Bin (Iop2.Div,x,y)
+  let mod_ x y = Bin (Iop2.Mod,x,y)
+
+  let eqI x y = EqI (x,y)
 
   let compile_string = function
     | String s -> Some s
@@ -147,6 +171,21 @@ end = struct
       let acc = Iop2.compile iop2 (v1,v2, Var.Sp) :: acc in 
       return (acc, Instr.Var Var.Sp)
 
+    | EqI (_e1,_e2) ->
+      failwith "compile,EqI"
+
+
+  and compile_branch : bool t -> Instr.label -> Instr.t list In_image.t =
+    fun t lab ->
+      match t with
+      | Read _ -> failwith "compile_branch,Read"
+      | EqI (e1,e2) -> 
+	let acc = [] in
+	compile acc e2 >>= fun (acc,v2) ->
+	compile acc e1 >>= fun (acc,v1) ->
+	let acc = Instr.Jump_eq (v1,v2,lab) :: acc in
+	return (List.rev acc)
+
 end
 
 
@@ -154,10 +193,13 @@ module Action : sig
 
   type 'a t
   val newline : unit t
+  val quit : unit t
   val print : string Exp.t -> unit t
   val print_num : int Exp.t -> unit t
   val assign : 'a Lv.t -> 'a Exp.t -> unit t
   val (-$$) : unit t -> 'a t -> 'a t
+  val if_ : bool Exp.t -> unit t -> unit t -> unit t
+  val forever : unit t -> unit t
 
   val compile1 : unit t -> Instr.t list In_image.t
 
@@ -165,21 +207,34 @@ end = struct
 
   type _ t =
   | Newline : unit t
+  | Quit : unit t
   | Print : string Exp.t -> unit t
   | Print_num : int Exp.t -> unit t
   | Assign : 'a Lv.t * 'a Exp.t -> unit t
   | Seq : unit t * 'a t -> 'a t
+  | If_ : bool Exp.t * 'a t * 'a t -> 'a t
+  | Forever : 'a t -> 'a t
 
   let newline = Newline
+  let quit = Quit
   let print x = Print x
   let print_num x = Print_num x
   let assign lv exp = Assign (lv,exp)
   let (-$$) a b = Seq (a,b)
+  let if_ a b c = If_(a,b,c)
+  let forever a = Forever(a)
 
 
-  let rec compile acc = function
+  let rec compile0 : unit t -> Instr.t list In_image.t = fun t ->
+    compile [] t >>= fun acc ->
+    return (List.rev acc)
+
+  and compile acc = function
     | Newline ->
       return (Instr.Newline :: acc)
+
+    | Quit ->
+      return (Instr.Quit :: acc)
       
     | Print s_exp -> 
       begin match Exp.compile_string s_exp with
@@ -201,6 +256,37 @@ end = struct
       let target = Lv.compile_as_target lv in
       Exp.compile acc exp >>= fun (acc,value) ->
       return (Instr.Store (target,value) :: acc)
+
+    | If_ (cond,a1,a2) ->
+      In_image.allocate_label >>= fun lab_true ->
+      In_image.allocate_label >>= fun lab_join ->
+      Exp.compile_branch cond lab_true >>= fun xs0 ->
+      compile0 a1 >>= fun xs_true ->
+      compile0 a2 >>= fun xs_false ->
+      let xs = 
+	List.concat [
+	  xs0;
+	  xs_false;
+	  [Jump lab_join;
+	   Define_label lab_true];
+	  xs_true;
+	  [Define_label lab_join];
+	]
+      in
+      return (List.rev xs @ acc)
+
+    | Forever (body) ->
+      In_image.allocate_label >>= fun lab_start ->
+      compile0 body >>= fun xs_body ->
+      let xs = 
+	List.concat [
+	  [Instr.Define_label lab_start];
+	  xs_body;
+	  [Jump lab_start];
+	]
+      in
+      return (List.rev xs @ acc)
+      
 
   let compile1 t = 
     (* We accumulate instructions by pushing onto acc. 

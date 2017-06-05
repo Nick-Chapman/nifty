@@ -24,6 +24,9 @@ type t =
 | Add of (arg * arg * Var.t)
 | Sub of (arg * arg * Var.t)
 | Mul of (arg * arg * Var.t)
+| Div of (arg * arg * Var.t)
+| Mod of (arg * arg * Var.t)
 | Define_label of label
 | Jump_eq of (arg * arg * label)
+| Jump of label
 [@@deriving sexp_of]

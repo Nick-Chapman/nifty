@@ -24,8 +24,9 @@ type tree =
 | Seq of tree * tree
 | Bytes of Byte.t list
 | Define of Mark.t
-| Location of Mark.t
+| Byte_address of Mark.t
 | Packed_address of Zversion.t * Mark.t
+| Offset of ((int -> Word.t) * Mark.t * Mark.t)
 | Align2
 
 let tree_size : tree -> int =
@@ -34,8 +35,9 @@ let tree_size : tree -> int =
     | Seq (tree1,tree2) -> walk tree1 + walk tree2
     | Bytes bs -> List.length bs
     | Define _ -> 0
-    | Location _ -> 2
+    | Byte_address _ -> 2
     | Packed_address _ -> 2
+    | Offset _ -> 2
     | Align2 -> failwith "tree_size,Align2" (* sad, but what else? *)
   in
   walk
@@ -48,8 +50,9 @@ let pass1 ~(start:Loc.t) : tree -> (Mark.t * Loc.t) list =
       collect loc acc tree2
     | Bytes bs -> acc, loc ++ List.length bs
     | Define d -> (d,loc) :: acc, loc
-    | Location _ -> acc, loc ++ 2
+    | Byte_address _ -> acc, loc ++ 2
     | Packed_address _ -> acc, loc ++ 2
+    | Offset _ -> acc, loc ++ 2
     | Align2 -> 
       if (Loc.to_int loc % 2 = 1)
       then acc, loc ++ 1
@@ -70,13 +73,20 @@ let pass2 ~(start:Loc.t) ~(locate: mark -> Loc.t) : tree -> Byte.t list =
 
     | Define _ -> acc, loc
 
-    | Location mark -> 
+    | Byte_address mark -> 
       let h,l = Word.to_high_low (Loc.to_word (locate mark)) in 
       List.rev [h;l] @ acc, loc ++ 2
 
     | Packed_address (zversion,mark) -> 
       let w = Loc.to_packed_address zversion (locate mark) in
       let h,l = Word.to_high_low w  in 
+      List.rev [h;l] @ acc, loc ++ 2
+
+    | Offset (f,mark1,mark2) -> 
+      let i1 = Loc.to_int (locate mark1) in
+      let i2 = Loc.to_int (locate mark2) in
+      let w = f (i2 - i1) in
+      let h,l = Word.to_high_low w in
       List.rev [h;l] @ acc, loc ++ 2
 
     | Align2 ->
@@ -125,11 +135,14 @@ let bytes xs =
 let here = 
   T (fun m -> Mark.inc m, Define m, m)
 
-let loc mark = 
-  T (fun m -> m, Location mark, ())
+let byte_address mark = 
+  T (fun m -> m, Byte_address mark, ())
 
 let packed_address zversion mark = 
   T (fun m -> m, Packed_address (zversion,mark), ())
+
+let offset f (mark1,mark2) = 
+  T (fun m -> m, Offset (f,mark1,mark2), ())
 
 let size t =
   T (fun m ->

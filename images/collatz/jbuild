@@ -1,0 +1,4 @@
+
+(executables
+ ((names (collatz))
+  (libraries (core z_machine nifty_lib))))

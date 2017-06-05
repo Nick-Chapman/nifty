@@ -7,9 +7,10 @@ type mark
 val exec : 'a t -> start:Loc.t -> 'a * Byte.t list * (mark -> Loc.t)
 
 val here : mark t
+
+val offset : (int -> Word.t) -> mark * mark -> unit t
+val byte_address : mark -> unit t
 val packed_address : Zversion.t -> mark -> unit t
-val loc : mark -> unit t
-val align2 : unit t
 
 val return : 'a -> 'a t
 val (>>=) : 'a t -> ('a -> 'b t) -> 'b t
@@ -28,3 +29,5 @@ val bytes : Byte.t list -> unit t
 val word : Word.t -> unit t
 val seq : unit t list -> unit t
 val concat : 'a t list -> 'a list t
+
+val align2 : unit t (* nasty *)

@@ -26,15 +26,22 @@ module Exp : sig
   val add : int t -> int t -> int t
   val sub : int t -> int t -> int t
   val mul : int t -> int t -> int t
+  val div : int t -> int t -> int t
+  val mod_: int t -> int t -> int t
+
+  val eqI : int t -> int t -> bool t
 end
 
 module Action : sig
   type 'a t
+  val quit : unit t
   val newline : unit t
   val print : string Exp.t -> unit t
   val print_num : int Exp.t -> unit t
   val assign : 'a Lv.t -> 'a Exp.t -> unit t
   val (-$$) : unit t -> 'a t -> 'a t
+  val if_ : bool Exp.t -> unit t -> unit t -> unit t (* 'a ? *)
+  val forever : unit t -> unit t
 end
 
 val compile : unit Action.t In_image.t -> Assemble.Story.t

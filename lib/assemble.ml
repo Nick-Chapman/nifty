@@ -114,7 +114,7 @@ end = struct
 		  emit_parent;
 		  emit_sibling;
 		  emit_child;
-		  Emit.loc prop_table;
+		  Emit.byte_address prop_table;
 		])))
 	~second:(
 	  Emit.concat (
@@ -173,9 +173,14 @@ module I = struct
     | Instr.Add (a,b,_)
     | Instr.Sub (a,b,_)
     | Instr.Mul (a,b,_)
+    | Instr.Div (a,b,_)
+    | Instr.Mod (a,b,_)
     | Instr.Jump_eq (a,b,_)
       -> [arg_desc_of_arg a; arg_desc_of_arg b]
     | Instr.Define_label _ -> failwith "argsDescI: Label"
+
+    | Instr.Jump _ -> []
+
       
   let opkindI = 
     function
@@ -190,8 +195,11 @@ module I = struct
     | Instr.Add _ -> Op2varForm
     | Instr.Sub _ -> Op2varForm
     | Instr.Mul _ -> Op2varForm
+    | Instr.Div _ -> Op2varForm
+    | Instr.Mod _ -> Op2varForm
     | Instr.Define_label _ -> failwith "opkindI: Label"
     | Instr.Jump_eq _ -> Op2varForm
+    | Instr.Jump _ -> Op1 WordConst
 
   let opcodeI = 
     function
@@ -205,8 +213,11 @@ module I = struct
     | Instr.Add _ -> 20
     | Instr.Sub _ -> 21
     | Instr.Mul _ -> 22
+    | Instr.Div _ -> 23
+    | Instr.Mod _ -> 24
     | Instr.Define_label _ -> failwith "opcodeI: Label"
     | Instr.Jump_eq _ -> 1
+    | Instr.Jump _ -> 12
       
   let bits_of_arg_desc = function
     | WordConst -> 0
@@ -335,6 +346,8 @@ module I = struct
     | Instr.Add(a,b,var)  
     | Instr.Sub(a,b,var)  
     | Instr.Mul(a,b,var)  
+    | Instr.Div(a,b,var)  
+    | Instr.Mod(a,b,var)  
       ->
       Emit.seq [
 	emit_arg env zversion a;
@@ -342,12 +355,14 @@ module I = struct
 	emit_var var
       ]
 
-    | Instr.Define_label _ -> failwith "emit: Label"
     | Instr.Jump_eq (a,b,_) ->
       Emit.seq [
 	emit_arg env zversion a;
 	emit_arg env zversion b;
       ]
+
+    | Instr.Define_label _ -> failwith "emit: Define_label"
+    | Instr.Jump _ -> failwith "emit: Jump"
 
 
   let emit env zversion i = 
@@ -376,12 +391,12 @@ module Header = struct
 	emit_of_zversion zversion; (* 1 *)
 	emit_zeros 1;
 	Emit.word (Word.of_int_exn 42);   (*release*)
-	Emit.loc end_loc;  (*base_high*)
-	Emit.loc init_pc;
-	Emit.loc dict_loc;
-	Emit.loc objects_loc;
-	Emit.loc base_globals;
-	Emit.loc end_loc; (* base_static *)
+	Emit.byte_address end_loc;  (*base_high*)
+	Emit.byte_address init_pc;
+	Emit.byte_address dict_loc;
+	Emit.byte_address objects_loc;
+	Emit.byte_address base_globals;
+	Emit.byte_address end_loc; (* base_static *)
 	emit_zeros 2;
 	emit_of_string "NIFTY!"; (*6*)
 	Emit.word (Word.of_int_exn 0);  (*base_abbrev*)
@@ -405,14 +420,28 @@ module Forward_offsets : sig
   type t
   val empty : t
   val increase : t -> int -> t
-  val extend_label_at_zero_offset : t -> Instr.label -> t
-  val lookup : t -> Instr.label -> int
+  val extend : t -> Instr.label -> Emit.mark -> t
+  val lookup_offset : t -> Instr.label -> int
+  val lookup_mark : t -> Instr.label -> Emit.mark
 end = struct
-  type t = int Lab.Map.t
+  type t = (Emit.mark * int) Lab.Map.t
   let empty = Lab.Map.empty
-  let increase m n = Lab.Map.map m ~f:(fun x -> (x+n))
-  let extend_label_at_zero_offset m lab = Lab.Map.add m ~key:lab ~data:0
-  let lookup m lab = Lab.Map.find_exn m lab
+  let increase m n = Lab.Map.map m ~f:(fun (mark,x) -> (mark,x+n))
+  let extend m lab mark = Lab.Map.add m ~key:lab ~data:(mark,0)
+  let lookup_offset m lab = snd (Lab.Map.find_exn m lab)
+  let lookup_mark m lab = fst (Lab.Map.find_exn m lab)
+end
+
+module Backwards_marks : sig
+  type t
+  val empty : t
+  val extend : t -> Instr.label -> Emit.mark -> t
+  val lookup : t -> Instr.label -> Emit.mark option
+end = struct
+  type t = Emit.mark Lab.Map.t
+  let empty = Lab.Map.empty
+  let extend m lab mark = Lab.Map.add m ~key:lab ~data:mark
+  let lookup m lab = Lab.Map.find m lab
 end
 
 
@@ -433,8 +462,6 @@ module Code = struct
 	Byte.of_int_exn (positive_sense lor small lor forward_offset)
       )
 
-      
-
   let emit_branch env zversion i ~(forward_offset:int) : unit Emit.t =
     Emit.seq [
       I.emit_opcode i;
@@ -443,17 +470,45 @@ module Code = struct
     ]
 
 
+  let emit_offset_for_jump =
+    let f (offset:int) =
+      let offset = offset + 2 in (* 0,1 have special meanings *)
+      Value.to_word (Value.of_int offset) (* signed, so use Value *)
+    in
+    fun ~from:m1 ~target:m2 -> 
+      Emit.offset f (m1,m2)
+
+
+  let emit_jump i ~target : unit Emit.t =
+    Emit.reverse_bind 
+      ~first_f:(fun ~backwards_flowing_info:from ->
+	Emit.seq [
+	  I.emit_opcode i;
+	  emit_offset_for_jump ~from ~target;
+	])
+      ~second:Emit.here
+
   let emit_i env zversion 
-      : Forward_offsets.t -> Instr.t -> Forward_offsets.t Emit.t =
-    fun fo (x:Instr.t) ->
-      let _ = Forward_offsets.lookup in
+      : Backwards_marks.t -> Forward_offsets.t -> Instr.t
+    -> Forward_offsets.t Emit.t =
+    fun bm fo (x:Instr.t) ->
       match x with
       | Instr.Define_label lab -> 
-	return (Forward_offsets.extend_label_at_zero_offset fo lab)
+	Emit.here >>= fun mark ->
+	return (Forward_offsets.extend fo lab mark)
 
       | Instr.Jump_eq (_,_,lab) -> 
-	let forward_offset = Forward_offsets.lookup fo lab in
+	let forward_offset = Forward_offsets.lookup_offset fo lab in
 	emit_branch env zversion x ~forward_offset >>= fun () ->
+	return fo
+
+      | Instr.Jump lab ->
+	let mark =
+	  match Backwards_marks.lookup bm lab with
+	  | None -> Forward_offsets.lookup_mark fo lab
+	  | Some mark -> mark
+	in
+	emit_jump x ~target:mark >>= fun () ->
 	return fo
 
       | _ ->
@@ -462,21 +517,28 @@ module Code = struct
 
 
   let emit_is env zversion : Instr.t list -> unit Emit.t =
-    let rec loop : Instr.t list -> Forward_offsets.t Emit.t = function
+    let rec loop bm : Instr.t list -> Forward_offsets.t Emit.t = function
       | [] -> return Forward_offsets.empty
       | x::xs -> 
+	Emit.here >>= fun loc ->
+	let bm = 
+	  match x with
+	  | Instr.Define_label lab -> Backwards_marks.extend bm lab loc
+	  | _ -> bm
+	in
 	Emit.reverse_bind
 	  ~first_f:(fun ~backwards_flowing_info:fo ->
-	    Emit.size (emit_i env zversion fo x) >>= fun (fo,size) ->
+	    Emit.size (emit_i env zversion bm fo x) >>= fun (fo,size) ->
 	    return (Forward_offsets.increase fo size)
 	  )
 	  ~second:(
-	    loop xs >>= fun fo ->
+	    loop bm xs >>= fun fo ->
 	    return fo
 	  )
     in
     fun xs -> 
-      loop xs >>= fun _fo ->
+      let bm = Backwards_marks.empty in
+      loop bm xs >>= fun _fo ->
       return ()
 
   let compile zversion env (Code instructions) = 
@@ -609,7 +671,8 @@ end = struct
       let module I_decoder = Z.I_decoder.F(struct let the_mem = mem end) in
       let code_start = Z.Header.code_start mem in
       let code_end = text_loc in
-      let () = I_decoder.disassemble_between(code_start,code_end) in
+      let __() = I_decoder.disassemble_between(code_start,code_end) in
+      let () = I_decoder.disassemble_reachable() in
       ()
     in
     let () = bar() in
