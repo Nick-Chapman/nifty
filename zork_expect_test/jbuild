@@ -1,0 +1,4 @@
+(library
+ ((name zork_expect_test) ;; This is really part of niz
+  (preprocess (pps (ppx_jane)))
+  (libraries (core z_machine))))

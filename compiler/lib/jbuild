@@ -1,0 +1,4 @@
+(library
+ ((name nifty_compiler_lib)
+  (preprocess (pps (ppx_jane)))
+  (libraries (core nifty_assembler_lib z_machine))))

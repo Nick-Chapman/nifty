@@ -1,0 +1,4 @@
+(library
+ ((name nifty_assembler_lib)
+  (preprocess (pps (ppx_jane)))
+  (libraries (core z_machine zork_expect_test))))

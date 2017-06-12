@@ -1,0 +1,4 @@
+
+(executables
+ ((names (blast))
+  (libraries (core z_machine nifty_assembler_lib))))

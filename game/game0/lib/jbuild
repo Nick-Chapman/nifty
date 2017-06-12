@@ -1,0 +1,4 @@
+(library
+ ((name game0_lib)
+  (preprocess (pps (ppx_jane)))
+  (libraries (core z_machine nifty_compiler_lib))))

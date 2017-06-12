@@ -1,4 +1,0 @@
-(library
- ((name nifty_lib)
-  (preprocess (pps (ppx_jane)))
-  (libraries (core z_machine))))

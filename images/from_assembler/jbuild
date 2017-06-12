@@ -1,4 +1,0 @@
-
-(executables
- ((names (stuff))
-  (libraries (core z_machine nifty_lib))))

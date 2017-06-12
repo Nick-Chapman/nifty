@@ -1,0 +1,6 @@
+(executables
+ ((names (game0))
+  (libraries (core 
+	      z_machine 
+	      nifty_compiler_lib 
+	      game0_lib))))

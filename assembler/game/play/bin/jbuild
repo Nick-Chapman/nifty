@@ -1,0 +1,4 @@
+
+(executables
+ ((names (play))
+  (libraries (core z_machine nifty_assembler_lib))))
