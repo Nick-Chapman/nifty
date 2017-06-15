@@ -32,6 +32,7 @@ module Exp : sig
 
   val eqI : num t -> num t -> bool t
 
+  val lessI : num t -> num t -> bool t
   val leqI : num t -> num t -> bool t
   val not : bool t -> bool t
   val bool : bool -> bool t
@@ -47,13 +48,13 @@ module Action : sig
   val newline : unit t
   val print : string Exp.t -> unit t
   val print_num : num Exp.t -> unit t
+  val print_char : char Exp.t -> unit t
   val assign : 'a Lv.t -> 'a Exp.t -> unit t
   val (-$$) : unit t -> 'a t -> 'a t
   val if_ : bool Exp.t -> unit t -> unit t -> unit t (* 'a ? *)
+  val while_ : bool Exp.t -> unit t -> unit t
   val forever : unit t -> unit t
-
   val let_ : 'a Exp.t -> ('a Exp.t -> 'b t) -> 'b t
-
 end
 
 module Word : sig
@@ -66,6 +67,7 @@ end
 module Text_buf : sig
   type t
   val create : size:int -> t In_image.t
+  val get_char : t -> num Exp.t -> char Exp.t
 end
 
 module Parse_buf : sig
@@ -73,6 +75,8 @@ module Parse_buf : sig
   val create : size:int -> t In_image.t
   val num_entries : t -> num Exp.t
   val get : t -> num Exp.t -> Word.t Exp.t
+  val get_word_size : t -> num Exp.t -> num Exp.t
+  val get_text_offset : t -> num Exp.t -> num Exp.t
 end
 
 module Parse : sig

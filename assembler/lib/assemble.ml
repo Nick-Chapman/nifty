@@ -213,9 +213,15 @@ module II = struct
 
     | Instr.Jump_eq (a,b,lab)   -> Op2  1 , [a;b], B lab
     | Instr.Jump_neq (a,b,lab)  -> Op2  1 , [a;b], B lab (* sense=false*)
-    | Instr.Jump_leq (a,b,lab)  -> Op2  2 , [a;b], B lab
-    | Instr.Jump_geq (a,b,lab)  -> Op2  3 , [a;b], B lab
+
+    | Instr.Jump_lt (a,b,lab)   -> Op2  2 , [a;b], B lab
+    | Instr.Jump_geq (a,b,lab)  -> Op2  2 , [a;b], B lab (* sense=false *)
+
+    | Instr.Jump_gt (a,b,lab)   -> Op2  3 , [a;b], B lab
+    | Instr.Jump_leq (a,b,lab)  -> Op2  3 , [a;b], B lab (* sense=false *)
+
     | Instr.Store(a,b)          -> Op2 13 , [a;b], X
+    | Instr.Load_byte(a,b,var)  -> Op2 16 , [a;b], V var
     | Instr.Load_word(a,b,var)  -> Op2 15 , [a;b], V var
     | Instr.Add(a,b,var)        -> Op2 20 , [a;b], V var
     | Instr.Sub(a,b,var)        -> Op2 21 , [a;b], V var
@@ -227,6 +233,7 @@ module II = struct
     | Instr.Store_byte(a,b,c)   -> OpV  2 , [a;b;c], X
     | Instr.Push(a)             -> OpV  8 , [a], X
     | Instr.Print_num arg       -> OpV  6 , [arg], X
+    | Instr.Print_char arg      -> OpV  5 , [arg], X
     | Instr.Sread(a,b)          -> OpV  4 , [a;b], X
 
 
@@ -372,13 +379,21 @@ module Code = struct
 	let forward_offset = Forward_offsets.lookup_offset fo lab in
 	emit_branch env zversion x ~forward_offset ~sense:false >>= fun () ->
 	return fo
-      | Instr.Jump_leq (_,_,lab) -> 
+      | Instr.Jump_lt (_,_,lab) -> 
 	let forward_offset = Forward_offsets.lookup_offset fo lab in
 	emit_branch env zversion x ~forward_offset ~sense:true >>= fun () ->
 	return fo
-      | Instr.Jump_geq (_,_,lab) -> 
+      | Instr.Jump_gt (_,_,lab) -> 
 	let forward_offset = Forward_offsets.lookup_offset fo lab in
 	emit_branch env zversion x ~forward_offset ~sense:true >>= fun () ->
+	return fo
+      | Instr.Jump_leq (_,_,lab) -> 
+	let forward_offset = Forward_offsets.lookup_offset fo lab in
+	emit_branch env zversion x ~forward_offset ~sense:false >>= fun () ->
+	return fo
+      | Instr.Jump_geq (_,_,lab) -> 
+	let forward_offset = Forward_offsets.lookup_offset fo lab in
+	emit_branch env zversion x ~forward_offset ~sense:false >>= fun () ->
 	return fo
 
       | Instr.Jump (Lab lab) ->

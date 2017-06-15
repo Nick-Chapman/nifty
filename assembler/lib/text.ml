@@ -29,7 +29,12 @@ end = struct
   let code_A = Char.to_int 'A'
   let upper c = create_exn (6 + Char.to_int c - code_A)
 
+  let code_0 = Char.to_int '0'
+  let digit c = create_exn (8 + Char.to_int c - code_0)
+
+
   let punc = function
+    | ('0'..'9') as c -> digit c
     | '.' -> create_exn (6 + 12)
     | ',' -> create_exn (6 + 13)
     | '!' -> create_exn (6 + 14)
@@ -37,6 +42,8 @@ end = struct
     | '_' -> create_exn (6 + 16)
     | '#' -> create_exn (6 + 17)
     | '\''-> create_exn (6 + 18)
+    | '-' -> create_exn 28
+    | ':' -> create_exn 29
     | '(' -> create_exn 30
     | ')' -> create_exn 31
     | '\n' -> create_exn 7

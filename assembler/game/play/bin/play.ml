@@ -26,10 +26,10 @@ let _p1,text = Text.add text "Apples are nice"
 let _p2,text = Text.add text "Oranges are better"
 let not_in_dict,text = Text.add text "Not in dictionary"
 
-
 let g0 = Var.Global 0
 let g1 = Var.Global 1
 let g2 = Var.Global 2
+let g3 = Var.Global 3
 
 let code = 
   Code.create [
@@ -61,29 +61,29 @@ let code =
     Label l1;
     Print "But definitely see this"; Newline;
 *)
-(*
+
     Print "This story has two objects!";
     Newline;
     Print_obj (Int 1); Newline;
     Print_obj (Int 2); Newline;
-*)
+    Store (Target g0, Int 1);
     
     Print "Prompt! "; Sread(tbuf,pbuf);
     Print "Thanks"; Newline;
 
     (* g1 - temp
-       g0 - total number of words to print
+       g3 - total number of words to print
        g2 - current word# being printed (0.. total-1)
     *)
     
     Print "Number of words typed, ";
-    Load_word (pbuf, Int 0, g0); (* this should be load_byte from index 1 *)
-    Print_num (Var g0); Newline;
+    Load_word (pbuf, Int 0, g3); (* this should be load_byte from index 1 *)
+    Print_num (Var g3); Newline;
 
     Store (Target g2, Int 0);
 
     Label ("999");
-    Jump_neq (Var g2, Var g0, "1000");
+    Jump_neq (Var g2, Var g3, "1000");
     Print "Done";
     Quit;
     Label ("1000");

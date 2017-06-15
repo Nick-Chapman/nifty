@@ -68,4 +68,5 @@ let encode t =
   in
   let num_entries = List.length t.entries in
   encode_header ~num_entries >>= fun () ->
-  loop [] t.entries
+  let byname (_,s1) (_,s2) = String.compare s1 s2 in
+  loop [] (List.sort ~cmp:byname t.entries)

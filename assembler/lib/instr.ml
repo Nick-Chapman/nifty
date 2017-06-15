@@ -22,6 +22,7 @@ open Arg
 
 type t =
 | Load_word of arg * arg * Var.t
+| Load_byte of arg * arg * Var.t
 | Store of arg * arg
 | Store_byte of (arg * arg * arg)
 | Push of arg
@@ -33,6 +34,7 @@ type t =
 | Quit 
 | Sread of arg * arg
 | Print_num of arg
+| Print_char of arg
 | Add of (arg * arg * Var.t)
 | Sub of (arg * arg * Var.t)
 | Mul of (arg * arg * Var.t)
@@ -41,6 +43,8 @@ type t =
 | Label of label
 | Jump_eq of (arg * arg * label)
 | Jump_neq of (arg * arg * label)
+| Jump_lt of (arg * arg * label)
+| Jump_gt of (arg * arg * label)
 | Jump_leq of (arg * arg * label)
 | Jump_geq of (arg * arg * label)
 | Jump of arg

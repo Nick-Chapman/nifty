@@ -188,11 +188,17 @@ module Exp = struct
   | EqI : num t * num t -> bool t
   | LeqI : num t * num t -> bool t
   | GeqI : num t * num t -> bool t
+  | LtI : num t * num t -> bool t
+  | GtI : num t * num t -> bool t
 
   | Is_null_dict_word : Dict.word t -> bool t
   | Eq_dict_word : Dict.word t * Dict.word -> bool t
   | Num_entries_parse_buf : Buffers.id -> num t
   | Dict_word_from_parse_buf : Buffers.id * num t -> Dict.word t
+
+  | Parse_buf_get_word_size : Buffers.id * num t -> num t
+  | Parse_buf_get_text_offset : Buffers.id * num t -> num t
+  | Text_buf_get_char : Buffers.id * num t -> char t
 
   | Ite : bool t * 'a t * 'a t -> 'a t
     
@@ -202,11 +208,11 @@ module Exp = struct
   let maybe_invert (exp : bool t) : bool t option =
     match exp with
     | Bool b -> Some (Bool (not b))
-    | LeqI (a,b) -> Some (GeqI (a,b))
-    | GeqI (a,b) -> Some (LeqI (a,b))
+    | LeqI (a,b) -> Some (GtI (a,b))
+    | GeqI (a,b) -> Some (LtI (a,b))
+    | LtI (a,b) -> Some (GeqI (a,b))
+    | GtI (a,b) -> Some (LeqI (a,b))
     | _ -> None
-  let _ = maybe_invert
-
 
   let string x = String x
   let int x = Int x
@@ -220,6 +226,7 @@ module Exp = struct
 
   let eqI x y = EqI (x,y)
   let leqI x y = LeqI (x,y)
+  let lessI x y = LtI (x,y)
 
   let castInt x = CastInt x
 
@@ -233,12 +240,13 @@ module Exp = struct
 
   let compile_string = function
     | String s -> Some s
-
+(*
     | Read _lv
       -> None
     | Dict_word_from_parse_buf _ 
       -> None
-    | Ite _
+    | Ite _*)
+    | _ 
       -> None
 
   let rec compile : type a. (
@@ -277,6 +285,8 @@ module Exp = struct
     | EqI (_e1,_e2) -> failwith "compile,EqI"
     | LeqI (_e1,_e2) -> failwith "compile,LeqI"
     | GeqI (_e1,_e2) -> failwith "compile,GeqI"
+    | LtI (_e1,_e2) -> failwith "compile,LtI"
+    | GtI (_e1,_e2) -> failwith "compile,GtI"
     | Is_null_dict_word (_w) -> failwith "compile,Is_null_dict_word"
     | Eq_dict_word (_w,_kw) -> failwith "compile,Eq_dict_word"
 
@@ -289,12 +299,36 @@ module Exp = struct
       return (acc,Var Sp)
 
     | Dict_word_from_parse_buf (b,e1) ->
+      let buf = Buffers.name_for_assembler b in
       compile acc e1 >>= fun (acc,v1) ->
       let acc = Instr.Mul (v1,Arg.Int 2,Sp) :: acc in
       let acc = Instr.Add (Var Sp,Arg.Int 1,Sp) :: acc in
-      let buf = Buffers.name_for_assembler b in
       let acc = Instr.Load_word (Buffer buf,Var Sp,Sp) :: acc in
       return (acc,Var Sp)
+
+    | Parse_buf_get_word_size (b,e1) ->
+      let buf = Buffers.name_for_assembler b in
+      compile acc e1 >>= fun (acc,v1) ->
+      let acc = Instr.Mul (v1,Arg.Int 4,Sp) :: acc in
+      let acc = Instr.Add (Var Sp,Arg.Int 4,Sp) :: acc in
+      let acc = Instr.Load_byte (Buffer buf,Var Sp,Sp) :: acc in
+      return (acc,Var Sp)
+
+    | Parse_buf_get_text_offset (b,e1) ->
+      let buf = Buffers.name_for_assembler b in
+      compile acc e1 >>= fun (acc,v1) ->
+      let acc = Instr.Mul (v1,Arg.Int 4,Sp) :: acc in
+      let acc = Instr.Add (Var Sp,Arg.Int 5,Sp) :: acc in
+      let acc = Instr.Load_byte (Buffer buf,Var Sp,Sp) :: acc in
+      return (acc,Var Sp)
+
+    | Text_buf_get_char (b,e1) ->
+      let buf = Buffers.name_for_assembler b in
+      compile acc e1 >>= fun (acc,v1) ->
+      let acc = Instr.Load_byte (Buffer buf,v1,Sp) :: acc in
+      return (acc,Var Sp)
+
+
 
   and compile_push : type a. (
     a t -> Instr.t list In_image.t
@@ -341,6 +375,20 @@ module Exp = struct
       let acc = Instr.Jump_geq (v1,v2,lab) :: acc in
       return (List.rev acc)
 
+    | LtI (e1,e2) -> 
+      let acc = [] in
+      compile acc e2 >>= fun (acc,v2) ->
+      compile acc e1 >>= fun (acc,v1) ->
+      let acc = Instr.Jump_lt (v1,v2,lab) :: acc in
+      return (List.rev acc)
+
+    | GtI (e1,e2) -> 
+      let acc = [] in
+      compile acc e2 >>= fun (acc,v2) ->
+      compile acc e1 >>= fun (acc,v1) ->
+      let acc = Instr.Jump_gt (v1,v2,lab) :: acc in
+      return (List.rev acc)
+
     | Is_null_dict_word (ew) ->
       let acc = [] in
       compile acc ew >>= fun (acc,arg1) ->
@@ -369,9 +417,11 @@ module Action = struct
   | Quit : unit t
   | Print : string Exp.t -> unit t
   | Print_num : num Exp.t -> unit t
+  | Print_char : char Exp.t -> unit t
   | Assign : 'a Lv.t * 'a Exp.t -> unit t
   | Seq : unit t * 'a t -> 'a t
   | If_ : bool Exp.t * 'a t * 'a t -> 'a t
+  | While : bool Exp.t * 'a t -> 'a t
   | Forever : 'a t -> 'a t
   | Sread : Buffers.id * Buffers.id -> unit t
   | Let_ : 'a Exp.t * ('a Exp.t -> 'b t) -> 'b t
@@ -380,9 +430,11 @@ module Action = struct
   let quit = Quit
   let print x = Print x
   let print_num x = Print_num x
+  let print_char x = Print_char x
   let assign lv exp = Assign (lv,exp)
   let (-$$) a b = Seq (a,b)
   let if_ a b c = If_(a,b,c)
+  let while_ b a = While(b,a)
   let forever a = Forever(a)
   let let_ bound f = Let_ (bound,f)
 
@@ -409,6 +461,11 @@ module Action = struct
       Exp.compile acc i_exp >>= fun (acc,arg) ->
       return (Instr.Print_num arg :: acc)
 
+    | Print_char i_exp -> 
+      Exp.compile acc i_exp >>= fun (acc,arg) ->
+      return (Instr.Print_char arg :: acc)
+
+
     | Seq (a,b) -> 
       compile acc a >>= fun acc ->
       compile acc b
@@ -424,6 +481,23 @@ module Action = struct
 	~compile_arm:compile0
 	(cond,a1,a2)
       >>= fun xs ->
+      let acc = List.rev xs @ acc in
+      return acc
+
+    | While (cond,body) ->
+      In_image.allocate_label >>= fun lab_start ->
+      In_image.allocate_label >>= fun lab_after ->
+      Exp.compile_branch (Exp.not cond) lab_after >>= fun xs_cond ->
+      compile0 body >>= fun xs_body ->
+      let xs = 
+	List.concat [
+	  [Instr.Label lab_start];
+	  xs_cond;
+	  xs_body;
+	  [Instr.Jump (Arg.Lab lab_start)];
+	  [Instr.Label lab_after];
+	]
+      in
       let acc = List.rev xs @ acc in
       return acc
 
@@ -470,7 +544,10 @@ module Action = struct
        Then reverse at the end *) 
     (* TODO: kill this accumulator stuff, which is just a premature optimization
        & makes it much easier to make a mistake in code-gen phase *)
-    compile [] t >>= fun acc ->
+    let acc = [] in
+    (* setup g0 to point to object 1 *)
+    let acc = Instr.Store (Target (Global 0),Int 1) :: acc in
+    compile acc t >>= fun acc ->
     let acc = Instr.Quit :: acc in
     return (List.rev acc)
 
@@ -489,6 +566,7 @@ end
 module Text_buf = struct
   type t = TB of Buffers.id
   let create ~size = In_image.allocate_buffer ~size >>| fun x -> TB x
+  let get_char (TB buf) ie = Exp.Text_buf_get_char (buf,ie)
 end
 
 module Parse_buf = struct
@@ -496,6 +574,8 @@ module Parse_buf = struct
   let create ~size = In_image.allocate_buffer ~size >>| fun x -> PB x
   let num_entries (PB buf) = Exp.Num_entries_parse_buf buf
   let get (PB buf) ie = Exp.Dict_word_from_parse_buf (buf,ie)
+  let get_word_size (PB buf) ie = Exp.Parse_buf_get_word_size (buf,ie)
+  let get_text_offset (PB buf) ie = Exp.Parse_buf_get_text_offset (buf,ie)
 end
 
 module Parse = struct
@@ -505,7 +585,11 @@ end
 
 
 let compile (uam : unit Action.t In_image.t) = 
-  let objects = Assemble.Objects.create [] in (* no objects! *)
+  (* we need at least 1 object so 
+     the current-room global (g0) can point to it. *)
+  let objects = Assemble.Objects.create [
+    Assemble.Objects.Ob.create ~short_name:"The-only-object"
+  ] in
   
   let instructions,text,dict,buffers = 
     In_image.exec (
